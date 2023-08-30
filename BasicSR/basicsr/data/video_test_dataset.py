@@ -5,6 +5,7 @@ from torch.utils import data as data
 
 from basicsr.data.data_util import duf_downsample, generate_frame_indices, read_img_seq
 from basicsr.utils import get_root_logger, scandir
+from basicsr.data.transforms import augment, paired_random_crop
 from basicsr.utils.registry import DATASET_REGISTRY
 
 
@@ -50,8 +51,8 @@ class VideoTestDataset(data.Dataset):
         self.data_info = {'lq_path': [], 'gt_path': [], 'folder': [], 'idx': [], 'border': []}
         # file client (io backend)
         self.file_client = None
-        self.io_backend_opt = opt['io_backend']
-        assert self.io_backend_opt['type'] != 'lmdb', 'No need to use lmdb during validation/test.'
+        # self.io_backend_opt = opt['io_backend']
+        # assert self.io_backend_opt['type'] != 'lmdb', 'No need to use lmdb during validation/test.'
 
         logger = get_root_logger()
         logger.info(f'Generate data info for VideoTestDataset - {opt["name"]}')
@@ -65,7 +66,7 @@ class VideoTestDataset(data.Dataset):
             subfolders_lq = sorted(glob.glob(osp.join(self.lq_root, '*')))
             subfolders_gt = sorted(glob.glob(osp.join(self.gt_root, '*')))
 
-        if opt['name'].lower() in ['vid4', 'reds4', 'redsofficial']:
+        if opt['name'].lower() in ['vid4', 'reds4', 'redsofficial','mfqe']:
             for subfolder_lq, subfolder_gt in zip(subfolders_lq, subfolders_gt):
                 # get frame list for lq and gt
                 subfolder_name = osp.basename(subfolder_lq)
@@ -104,7 +105,7 @@ class VideoTestDataset(data.Dataset):
         idx, max_idx = int(idx), int(max_idx)
         border = self.data_info['border'][index]
         lq_path = self.data_info['lq_path'][index]
-
+        scale = self.opt['scale']
         select_idx = generate_frame_indices(idx, max_idx, self.opt['num_frame'], padding=self.opt['padding'])
 
         if self.cache_data:
@@ -115,7 +116,16 @@ class VideoTestDataset(data.Dataset):
             imgs_lq = read_img_seq(img_paths_lq)
             img_gt = read_img_seq([self.imgs_gt[folder][idx]])
             img_gt.squeeze_(0)
-
+        
+        
+        if self.opt['phase'] == 'train':
+            gt_size = self.opt['gt_size']
+            
+            # random crop
+            img_gt, imgs_lq = paired_random_crop(img_gt, imgs_lq, gt_size, scale, None)
+            # flip, rotation
+            img_gt, imgs_lq = augment([img_gt, imgs_lq], self.opt['use_flip'], self.opt['use_rot'])
+        
         return {
             'lq': imgs_lq,  # (t, c, h, w)
             'gt': img_gt,  # (c, h, w)
